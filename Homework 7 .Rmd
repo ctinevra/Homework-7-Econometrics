@@ -1,0 +1,296 @@
+---
+title: "Homework 7, Econ B2000"
+author: 'Christopher Tinevra & Nicole Kerrison'
+date: "11/17/2020"
+output: github_document
+---
+
+## Econ B2000,LAB 7 Results
+
+```{r}
+load("~/Library/Mobile Documents/com~apple~CloudDocs/Economics Master/Econometrics/Labs/ecob2000_lab7-main/NHIS_2014.RData")
+```
+
+The purpose of this lab is to understand the factors that make an adult more likely to have health insurance. Data was collected from the National Health Interview Survey. 
+
+The graph below illustrates the income ranges for the participants of the National Health Interview Survey.
+```{r}
+data_use1$earn_lastyr <- as.factor(data_use1$ERNYR_P)
+levels(data_use1$earn_lastyr) <- c("0","$01-$4999","$5000-$9999","$10000-$14999","$15000-$19999","$20000-$24999","$25000-$34999","$35000-$44999","$45000-$54999","$55000-$64999","$65000-$74999","$75000 and over",NA,NA,NA)
+
+plot(data_use1$earn_lastyr, xlab= "Income", ylab = "Participants")
+```
+
+We want to create a subset from the initial data frame of the survey for Adults 21 and older. We are condidering this assumption becasue most adults out of college are likely to participate in the labor force and would likely have a health insurance plan. 
+```{r}
+use_varb <- (data_use1$AGE >= 21) 
+adult_use_data <- subset(data_use1,use_varb) 
+suppressMessages(attach(adult_use_data))
+
+model_logit1 <- glm(NOTCOV ~ AGE_P + I(AGE_P^2) + female + AfAm + Asian + RaceOther + Hispanic + educ_hs + educ_as + educ_bach + educ_adv + veteran_stat + REGION + region_born + disabl_limit + inworkforce, family = binomial, data = adult_use_data)
+summary(model_logit1)
+```
+
+```{r}
+notcovered<-sum(adult_use_data$NOTCOV=="1")
+print(paste("Adults not covered:", notcovered)) 
+covered<-sum(adult_use_data$NOTCOV=="0")
+print(paste("Adults covered:", covered))
+totaln<-length(adult_use_data$NOTCOV)
+print(paste("Total adults:", totaln))
+
+p.notcovered<-notcovered/totaln
+print(paste("Proportion not covered:", signif(p.notcovered,2))) 
+
+p.covered<-covered/totaln
+print(paste("Proportion covered:", signif(p.covered,2))) 
+```
+
+Creating a data frame composed of possible independent variables that can affect the insurance coverage of an individual, also taking into consideration if the individuals are in the work force and if there are disability limitations.
+
+```{r}
+d_region <- data.frame(model.matrix(~ adult_use_data$REGION))
+d_region_born <- data.frame(model.matrix(~ factor(adult_use_data$region_born)))
+
+dat_for_analysis_sub <- data.frame(
+  adult_use_data$NOTCOV,
+  adult_use_data$AGE_P,
+  adult_use_data$female,
+  adult_use_data$AfAm,
+  adult_use_data$Asian,
+  adult_use_data$RaceOther,
+  adult_use_data$Hispanic,
+  adult_use_data$educ_hs,
+  adult_use_data$educ_as,
+  adult_use_data$educ_bach,
+  adult_use_data$educ_adv,
+  adult_use_data$disabl_limit,
+  adult_use_data$inworkforce,
+  d_region[,2:4],
+  d_region_born[,2:12])
+
+names(dat_for_analysis_sub) <- c("NOTCOV",
+                                 "Age",
+                                 "female",
+                                 "AfAm",
+                                 "Asian",
+                                 "RaceOther",
+                                 "Hispanic",
+                                 "educ_hs",
+                                 "educ_as",
+                                 "educ_bach",
+                                 "educ_adv",
+                                 "disabl_limit",
+                                 "inworkforce",
+                                 "Region.Midwest",
+                                 "Region.South",
+                                 "Region.West",
+                                 "born.Mex.CentAm.Carib",
+                                 "born.S.Am",
+                                 "born.Eur",
+                                 "born.f.USSR",
+                                 "born.Africa",
+                                 "born.MidE",
+                                 "born.India.subc",
+                                 "born.Asia",
+                                 "born.SE.Asia",
+                                 "born.elsewhere",
+                                 "born.unknown")
+
+```
+
+Furthermore, the variables in use will be standardized while creating subset data frames to train and test the dependent variable (NOTCOV) with the various independent variables to predict whether an individual is covered or not covered under a health insurance plan.
+
+```{r}
+suppressMessages(require("standardize"))
+set.seed(54321)
+NN <- length(dat_for_analysis_sub$NOTCOV)
+print(NN)
+restrict_1 <- (runif(NN) < 0.1) # using 10% of the data for the training data
+summary(restrict_1)
+dat_train <- subset(dat_for_analysis_sub, restrict_1)
+dat_test <- subset(dat_for_analysis_sub, !restrict_1)
+sobj <- standardize(NOTCOV ~ Age + female + AfAm + Asian + RaceOther + Hispanic + 
+                      educ_hs + educ_as + educ_bach + educ_adv + disabl_limit + inworkforce+
+                      Region.Midwest + Region.South + Region.West + 
+                      born.Mex.CentAm.Carib + born.S.Am + born.Eur + born.f.USSR + 
+                      born.Africa + born.MidE + born.India.subc + born.Asia + 
+                      born.SE.Asia + born.elsewhere + born.unknown, dat_train, family = binomial)
+
+s_dat_train <- predict(sobj,dat_train)
+s_dat_test <- predict(sobj, dat_test)
+
+summary(s_dat_train)
+summary(s_dat_test)
+
+```
+
+The linear regression and logic model will predict the test data for the observations and the probability that someone will have health insurance or not have health insurance. 
+
+```{r}
+# Linear Probability Model
+all(is.na(sobj$data))
+
+model_lpm1 <- lm(sobj$formula, data = sobj$data)
+suppressWarnings(pred_vals_lpm <- predict(model_lpm1, s_dat_test))
+pred_model_lpm1 <- (pred_vals_lpm > 0.5)
+table1 <- table(pred = pred_model_lpm1,true = dat_test$NOTCOV)
+summary(table1)
+print(table1)
+
+# logit 
+model_logit1 <- glm(sobj$formula, family = binomial, data = sobj$data)
+suppressWarnings(pred_vals <- predict(model_logit1, s_dat_test, type = "response"))
+pred_model_logit1 <- (pred_vals > 0.5)
+table2 <- table(pred = pred_model_logit1, true = dat_test$NOTCOV)
+summary(table2)
+print(table2)
+
+suppressMessages(require(stargazer))
+stargazer(model_lpm1,model_logit1, type = "text")
+
+```
+The linear probability model illustrates the predicted probability that someone has insurance and in actuality they are not covered has a classification error of 13.66%. When predicting the probability that someone is not covered by health insurance but in actuality they are, theclassification error is 34.27%
+
+When analyzing the logit model predicting, the predicting probability that someone has insurance but in actuality they are not covered, the classification error is 12.37%. When predicting the probability that someone is not covered by health insurance but in actuality they are, the classification error is 40.86%
+
+```{r}
+suppressMessages(require('randomForest'))
+set.seed(54321)
+model_randFor <- randomForest(as.factor(NOTCOV) ~ ., data = sobj$data, importance=TRUE, proximity=TRUE)
+print(model_randFor)
+round(importance(model_randFor),2)
+varImpPlot(model_randFor)
+pred_model1 <- predict(model_randFor,  s_dat_test)
+table(pred = pred_model1, true = dat_test$NOTCOV)
+```
+The random forest shows the breakdown of our predicted variables in the test data. When predicting the probability that someone has insurance and in actuality they are not covered, the classification error is 1.52%. When predicting the probability that someone is not covered by health insurance but in actuality they are, the  classification error is 85.36%
+
+When looking at the probability that someone has heath insurance when comparing the linear, logit, and random forest model, we see there is a lower classification error for classifying someone as having heath insurance who is actually not covered in the Random forest model. The logit and linear models while taking into account more observations, had larger classification errors under this prediction. For predicting someone who is not covered but actually has insurance, the Random Forest model had a larger classification error compared to the logit and linear models.
+
+Lastly, we taking a look at the Lasso, Ridge and Elastic Net models. The models alpha's differentiates depending on the number, as when alpha = 1 that will represent the lasso, when alpha = 0 represents ridge, and the elastic net has an alpha in betweeen lasso and ridge or 0.5.
+
+The purpose of these models is to minimize the variation in the regression in order to accurately predict the value of the coefficients. The Lasso model will work best with a smaller number of set parameters and betas where as the Ridge model is better suited for models with multiple parameters and betas. The elastic model outputs a balance between the lasso and ridge models which can be useful when the variables become too dependent on the dataset and become somewhat unstable. The best model in this group will weigh heavily on the number of betas in the regression model.
+
+```{r}
+# Since alpha equals to 1 than we taking a look at the Lasso 
+suppressMessages(require(glmnet))
+model1_elasticnet <- glmnet(as.matrix(sobj$data[,-1]),sobj$data$NOTCOV, alpha =1) 
+
+par(mar=c(4.5,4.5,1,4))
+plot(model1_elasticnet)
+vnat=coef(model1_elasticnet)
+vnat=vnat[-1,ncol(vnat)]
+axis(4, at=vnat,line=-.5,label=names(sobj$data[,-1]),las=1,tick=FALSE, cex.axis=0.5) 
+
+plot(model1_elasticnet, xvar = "lambda")
+plot(model1_elasticnet, xvar = "dev", label = TRUE)
+print(model1_elasticnet)
+
+cvmodel1_elasticnet = cv.glmnet(data.matrix(sobj$data[,-1]),data.matrix(sobj$data$NOTCOV)) 
+cvmodel1_elasticnet$lambda.min
+log(cvmodel1_elasticnet$lambda.min)
+coef(cvmodel1_elasticnet, s = "lambda.min")
+
+pred1_elasnet <- predict(model1_elasticnet, newx = data.matrix(s_dat_test), s = cvmodel1_elasticnet$lambda.min)
+pred_model1_elasnet <- (pred1_elasnet < mean(pred1_elasnet)) 
+table(pred = pred_model1_elasnet, true = dat_test$NOTCOV)
+
+```
+
+``` {r}
+# Since alpha equals to 0 than we taking a look at the Ridge 
+model2_elasticnet <-  glmnet(as.matrix(sobj$data[,-1]),sobj$data$NOTCOV, alpha = 0) 
+
+par(mar=c(4.5,4.5,1,4))
+plot(model2_elasticnet)
+vnat=coef(model2_elasticnet)
+vnat=vnat[-1,ncol(vnat)]
+axis(4, at=vnat,line=-.5,label=names(sobj$data[,-1]),las=1,tick=FALSE, cex.axis=0.5) 
+
+plot(model2_elasticnet, xvar = "lambda")
+plot(model2_elasticnet, xvar = "dev", label = TRUE)
+print(model2_elasticnet)
+
+cvmodel2_elasticnet = cv.glmnet(data.matrix(sobj$data[,-1]),data.matrix(sobj$data$NOTCOV)) 
+cvmodel2_elasticnet$lambda.min
+log(cvmodel2_elasticnet$lambda.min)
+coef(cvmodel2_elasticnet, s = "lambda.min")
+
+pred2_elasnet <- predict(model2_elasticnet, newx = data.matrix(s_dat_test), s = cvmodel2_elasticnet$lambda.min)
+pred_model2_elasnet <- (pred2_elasnet < mean(pred2_elasnet)) 
+table(pred = pred_model2_elasnet, true = dat_test$NOTCOV)
+
+```
+
+``` {r}
+# Since alpha equals to 0.5 than we taking a look at the Elastic Net 
+model3_elasticnet <-  glmnet(as.matrix(sobj$data[,-1]),sobj$data$NOTCOV, alpha = 0.5) 
+
+par(mar=c(4.5,4.5,1,4))
+plot(model2_elasticnet)
+vnat=coef(model2_elasticnet)
+vnat=vnat[-1,ncol(vnat)]
+axis(4, at=vnat,line=-.5,label=names(sobj$data[,-1]),las=1,tick=FALSE, cex.axis=0.5) 
+
+plot(model3_elasticnet, xvar = "lambda")
+plot(model3_elasticnet, xvar = "dev", label = TRUE)
+print(model3_elasticnet)
+
+cvmodel3_elasticnet = cv.glmnet(data.matrix(sobj$data[,-1]),data.matrix(sobj$data$NOTCOV)) 
+cvmodel3_elasticnet$lambda.min
+log(cvmodel3_elasticnet$lambda.min)
+coef(cvmodel3_elasticnet, s = "lambda.min")
+
+pred3_elasnet <- predict(model3_elasticnet, newx = data.matrix(s_dat_test), s = cvmodel3_elasticnet$lambda.min)
+pred_model3_elasnet <- (pred3_elasnet < mean(pred3_elasnet)) 
+table(pred = pred_model3_elasnet, true = dat_test$NOTCOV)
+```
+
+## Review of Research Articles
+
+Reading below done by: Christopher Tinevra
+
+Research Article 1 Title: "Stop, Question, and Frisk in New York City: A Study of Public Opinions"
+
+Authors:Douglas N. Evans and Cynthia-Lee Williams
+
+In this research paper, the public opinion is gathered and examined to determine the perception and attitude towards the stop and frisk tactics used by police officers. The study utilizes survey data from NYC pedestrians which ask demographic information and opinion based questions about the NYPD stop and frisk practice. The sample size of the research consisted of 353 participants and various statistical approaches were utilized to analyzed the responses. One of the main methods used include the ordinary least square (OLS) regression models correlating the independent variables to the responses supporting the stop and frisk experience.  The results suggest a difference in support between respondents who had higher knowledge about the tactic than those who did not. The regression analysis illustrated Black respondents with knowledge of the tactic having lower support but at the same time Black respondents with higher education associated a greater support of the tactic given the perception that such practice could ensure community safety. Additionally, research suggest that negative experience with police offices can be associated with negative attitudes towards the police. In conclusion, the study suggested that more transparency from NYPD officers is needed to possible shift the perception of the tactic. 
+
+Reference: Evans, D. N., & Williams, C. L. (2017). Stop, question, and frisk in New York City: a study of public opinions. Criminal justice policy review, 28(7), 687-709.
+
+
+Reading below done by: Christopher Tinevra
+
+Research Article 2 Title:"Living under surveillance: Gender, psychological distress, and stopquestion-and-frisk policing in New York City"
+
+Authors: Abigail A. Sewell, Kevin A. Jefferson  and Hedwig Lee
+
+This research article examines the possible correlation between neighborhoods with high policing surveillance and psychological distress. The police surveillance tactics includes  stop, questioning, frisking, and possible use of force. The results were gathered from a sample size of 8,797 NYC residents that participated in the annual random health survey conducted by the NYC Department of Health and Mental Hygiene which gathered various health measures at the individual level. For neighborhood data, the results were gathered from the stop-level data provided by the NYPD which is publicly available. By utilizing generalized linear models using Stata for the statistical modeling, the research suggest gendered associations of neighborhood exposure to aggressive police stops on psychological distress. Additionally, descriptive statistics reveal an average of 22 pedestrian stop out 100 possible residents of an NYC neighborhood. In conclusion, the results suggested that men seem to exhibit more psychological distress and more severe feelings of nervousness since males are more likely to  be stop-and-frisk by police in a NYC neighborhoods.
+
+Reference: Sewell, A. A., Jefferson, K. A., & Lee, H. (2016). Living under surveillance: Gender, psychological distress, and stop-question-and-frisk policing in New York City. Social science & medicine, 159, 1-13.
+Chicago	
+
+
+Reading below done by: Nicole Kerrison
+
+Research Article 1 Title: "Police stop-and-frisk practices: an examination of factors that affect officers' decision to initiate a stop-and-frisk police procedure"
+
+Authors:Avidi Avdija
+
+This research examines the motivations behind offices to stop and search suspects when initiating a police stop. A 1968 court case ruling of Terry v. Ohio set a precedence for a probable cause level of justification to initiate a stop and elevate it up to a frisk based on reasonable suspicion. The study ranked in order the typical reasons that were reported by police which consisted of 14 reasons. The higher the frequency and mean score for each predictor indicated  the total effect on the officers decision to initiate the stop. Study used logic regressions because the beta coefficients (or predictors) were all binary. The two sets of independent variables were the reasons for initiating a stop and the suspects demographics (age, gender, race, height), crime scene factors, and suspects behavior. Sample case of 1,500 suspects were used out of a 506,491 total number of cases in 2006. High crime areas were a major contributor to police officers initiate a stop. The study also concluded that Black suspects were 1.68 times more likely to be stopped than White suspects. Latinos were 1.72 times more likely to be stopped compared to White suspects. Although the high crime area was a contributing factor to the stop, it was not statistically significant in determining if the subject would be frisked. Overall the study showed that race and another less discussed factor, gender, play a significant role in an officer's decision to stop and frisk a suspect.
+
+Reference: Avidi Avdija, Police stop-and-frisk practices: an examination of factors that affect officers' decision to initiate a stop-and-frisk police procedure, International Journal of Police Science and Management, Vol 16 No 1
+
+
+Reading below done by: Nicole Kerrison
+
+Research Article 2 Title: "Minority Threat Hypothesis and NYPD Stop and Frisk Policy"
+
+Authors: Joseph Ferrandino
+
+This research examines the NYPD stop and frisk policy under a minority threat hypothesis framework. This hypothesis identifies structures of institutional racial bias that exists within the police department despite the growing number of minorities joining the force. The segregated areas of the city that isolate minorities from affluent predominately white areas, vestigial stereotypical ideologies about minorities trigger a need for heavy policing in areas with minorities. To analyze this, data was pulled from the ACS (American Community Survey ) from 2007 to 2011 to look at the population breakdown by region in NYC. Data was also pulled from the 2012 NYPD Stop, Question, and Frisk data. There are four variables used in the regression; Frisks, searches, sanctions (summons issued or not) and use of force during stop. Racial group was broken out into White, Black and Hispanic (regardless of race). The neighborhoods were classified based on racial group dominance and six categories were created. Logistic models were run with the dependent variable use of force and frisk and search decisions. The study concluded that Blacks were more likely to be stopped, frisked, searched, sanctioned, and forcefully treated in each of the neighborhood classifications, regardless if they were dominate population or not. Hispanics were also more likely to see similar trends in predominately Hispanic neighborhoods. When the data was overlaid with the crime propensity ratio, Black people who were 4% of the population in predominately white neighborhoods were 35.7% more likely to be stopped. The logistic models showed that when controlling for other factors White and Hispanics were significantly less likely to be stopped in a predominately white neighborhood than Blacks.
+
+Reference: Joseph Ferrandino, Minority Threat Hypothesis and NYPD Stop and Frisk Policy. Criminal Justice Review, 2015 Vol. 40(2) 209-229
+
+
